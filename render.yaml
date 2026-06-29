@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: pdf-lib-service
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: PORT
+        value: "8080"
+      - key: WORKER_CONCURRENCY
+        value: "2"
+      - key: MAX_SOURCE_BYTES
+        value: "104857600"
+      - key: PDF_SERVICE_API_KEY
+        generateValue: true

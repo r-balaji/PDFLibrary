@@ -1,0 +1,31 @@
+{
+  "name": "pdf-lib-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Headless PDF chunking and slicing service for the AI Document Splitter. Called from Apex via Named Credential; talks directly to Salesforce Files REST for byte transfer.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "fastify": "^4.28.1",
+    "@fastify/sensible": "^5.6.0",
+    "pdf-lib": "^1.17.1",
+    "pino": "^9.4.0",
+    "pino-pretty": "^11.2.2",
+    "undici": "^6.19.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}
