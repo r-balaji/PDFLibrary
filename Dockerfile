@@ -1,16 +1,11 @@
-FROM node:20-alpine AS builder
+FROM python:3.12-slim AS builder
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm install --no-audit --no-fund
-COPY tsconfig.json ./
-COPY src ./src
-RUN npm run build
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
-FROM node:20-alpine
+FROM python:3.12-slim
 WORKDIR /app
-ENV NODE_ENV=production
-COPY package.json package-lock.json* ./
-RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /install /usr/local
+COPY app ./app
 EXPOSE 8080
-CMD ["node", "dist/server.js"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

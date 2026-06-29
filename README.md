@@ -1,73 +1,104 @@
 # pdf-lib-service
 
-Headless PDF chunking and slicing service for the AI Document Splitter. Called from Apex via Named Credential; talks directly to Salesforce Files REST for byte transfer.
+Headless PDF chunking and slicing service for the AI Document Splitter. Apex calls this service through a Named Credential; the service then talks directly to Salesforce Files REST for the actual byte transfer.
 
-Companion to the Salesforce repo in `Originate Agents/`. See the splitter walkthrough at `Originate Agents/docs/AI_Document_Splitter_Walkthrough.md` for the end-to-end picture.
+This repo is the external PDF worker for the Salesforce AI Document Splitter flow. It uses FastAPI for HTTP, pikepdf for PDF page operations, and Salesforce REST APIs for `ContentVersion` download/upload.
 
 ## Why this exists
 
-The browser pdf-lib path (LWC) covers loan-officer UI flows but not the headless case where the loan application arrives via REST from a borrower portal — no browser, no pdf-lib. This service runs the same pdf-lib operations server-side so Apex can drive them from a Queueable.
+Apex cannot copy arbitrary pages out of an existing PDF, and pushing PDF bytes through Apex callouts runs into practical payload limits. This service keeps Apex requests small: Apex sends IDs, a short-lived Salesforce access token, and split metadata; the service downloads and uploads the bytes directly from Salesforce Files.
 
-## What it does
+## Endpoints
 
-Two endpoints, both authed via a shared secret in the `Authorization: Bearer ...` header.
+All endpoints except `/` and `/healthz` require:
 
-### POST /v1/chunks
+```http
+Authorization: Bearer <PDF_SERVICE_API_KEY>
+```
 
-Splits a source PDF (> 12 MB) into overlapping 8-page chunks, uploads each chunk to Salesforce as a new ContentVersion, returns the new IDs. Used as the first step of the headless flow for large bundles; Apex then enqueues one classify call per chunk against Salesforce Prompt Builder.
+### `POST /v1/chunks`
 
-### POST /v1/splits
+Downloads a source `ContentVersion`, splits it into overlapping chunks, uploads each chunk as a new `ContentVersion`, and returns the new file IDs plus the page offset for each chunk.
 
-Given a source PDF and a list of segments (each with a `pages: [int]` array of absolute page numbers, contiguous or not), slices the source into one output PDF per segment and uploads each as a new ContentVersion in Salesforce. Optionally links each output to a record (e.g. `Loan_Application__c`).
+Default chunking is 8 pages with 2 pages of overlap. Send `chunkSize` and `overlap` to override it.
+
+### `POST /v1/splits`
+
+Downloads a source `ContentVersion`, slices it into one output PDF per segment, uploads each output as a new `ContentVersion`, and optionally moves each output into a target folder and links it to a record.
+
+Segments use 1-based absolute page numbers:
+
+```json
+{
+  "documentType": "BANK_STATEMENT",
+  "pages": [1, 3, 4],
+  "fileName": "BankStatement_Chase_Jane_Smith.pdf"
+}
+```
+
+Non-contiguous page lists are supported.
 
 ## How the bytes move
 
-Apex sends only IDs + a short-lived access token in the request body (a few KB). The service uses that token to talk directly to Salesforce's Files REST API for the actual byte transfer:
+```text
+Apex -> tiny JSON -> service
+                    |
+                    |-> GET ContentVersion VersionData
+                    |-> pikepdf chunk/split in memory
+                    |-> POST new ContentVersion records
 
-```
-   Apex ───── tiny JSON ─────► Service
-                                │
-                                ├─► GET ContentVersion VersionData  (download source bytes)
-                                ├─► pdf-lib chunk / slice           (in-memory, never on disk)
-                                └─► POST ContentVersion             (upload result bytes)
-
-   Apex ◄──── tiny JSON ────── Service
+Apex <- tiny JSON <- service
 ```
 
-This sidesteps the Apex callout payload limit (~12 MB async). Source file size is bounded by Salesforce Files (2 GB), not Apex.
+PDF bytes are never written to disk by the application code.
 
-## Local dev
+## Local Dev
 
 ```bash
-npm install
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements-dev.txt
 export PDF_SERVICE_API_KEY=dev-secret
-npm run dev
+uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 ```
 
-The service listens on `http://localhost:8080`. Health check: `GET /healthz`.
+Health check:
+
+```bash
+curl http://localhost:8080/healthz
+```
+
+## Configuration
+
+| Env var | Required | Default | Notes |
+|---|---:|---:|---|
+| `PDF_SERVICE_API_KEY` | yes | none | Shared secret expected in the `Authorization` header. |
+| `PORT` | no | `8080` | Used by Render/Docker. |
+| `LOG_LEVEL` | no | `info` | Python logging level. |
+| `WORKER_CONCURRENCY` | no | `2` | Max concurrent PDF CPU work inside this process. |
+| `MAX_SOURCE_BYTES` | no | `104857600` | Defensive source PDF size cap. |
 
 ## Deploy
 
-Render-ready via `render.yaml`. Push the repo, point Render at it, the Starter plan auto-provisions for $7/mo.
+The service is Render-ready through `render.yaml` and Docker:
 
 ```bash
-# After Render deploys:
-curl https://your-service.onrender.com/healthz
-# → {"ok":true,"name":"pdf-lib-service","version":"0.1.0"}
+docker build -t pdf-lib-service .
+docker run --rm -p 8080:8080 -e PDF_SERVICE_API_KEY=dev-secret pdf-lib-service
 ```
 
-Note the generated `PDF_SERVICE_API_KEY` from Render's env vars panel and configure it on the Salesforce Named Credential.
+After Render deploys:
 
-## Hosting model
+```bash
+curl https://your-service.onrender.com/healthz
+```
 
-Default: single shared instance for all customers (tenant isolation via Org Id in request bodies; bytes never persist).
-
-Per-customer dedicated: same Docker image, separate Render service. Each customer's Salesforce Named Credential points to its dedicated URL. Use this for customers with hard data-isolation requirements; same code, isolated infrastructure.
+Copy the generated `PDF_SERVICE_API_KEY` from Render into the Salesforce Named Credential or callout configuration.
 
 ## Tests
 
 ```bash
-npm test
+python3 -m pytest tests/ -v
 ```
 
-Vitest exercises the pure pdf-lib operations (`computeChunks`, `chunkPdf`, `splitByPages`). The Salesforce REST round-trips and route auth are best exercised against a sandbox; see the end-to-end smoke described in the splitter walkthrough.
+The test suite covers the pure PDF page operations plus the FastAPI auth, chunk, split, and validation paths with a fake Salesforce client. Live Salesforce REST round-trips should be smoke-tested against a sandbox.
