@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from ..pdf_ops import chunk_pdf, compute_chunks, get_page_count
+from ..pdf_ops import chunk_pdf, compute_chunks, compute_chunks_by_size, get_page_count
 from ..sf_client import SalesforceContext, SalesforceFilesClient, UploadOptions
 
 router = APIRouter()
@@ -19,8 +19,9 @@ class ChunkBody(BaseModel):
     sfAccessToken: str
     sfApiVersion: Optional[str] = '60.0'
     libraryId: Optional[str] = None
+    maxChunkBytes: Optional[int] = None
     chunkSize: Optional[int] = 8
-    overlap: Optional[int] = 2
+    overlap: Optional[int] = None
 
 
 class ChunkOutput(BaseModel):
@@ -57,10 +58,18 @@ async def chunks_route(body: ChunkBody, request: Request):
         if total_pages < 1:
             raise HTTPException(status_code=422, detail='Source PDF has no pages')
 
-        chunk_size = body.chunkSize if body.chunkSize is not None else 8
-        overlap = body.overlap if body.overlap is not None else 2
-        chunk_specs = compute_chunks(total_pages, chunk_size, overlap)
-        job_log.info(f'computed {len(chunk_specs)} chunks from {total_pages} pages')
+        if body.maxChunkBytes is not None:
+            overlap = body.overlap if body.overlap is not None else 0
+            chunk_specs = compute_chunks_by_size(source_bytes, body.maxChunkBytes, overlap)
+            job_log.info(
+                f'computed {len(chunk_specs)} byte-sized chunks from '
+                f'{total_pages} pages with maxChunkBytes={body.maxChunkBytes}'
+            )
+        else:
+            overlap = body.overlap if body.overlap is not None else 2
+            chunk_size = body.chunkSize if body.chunkSize is not None else 8
+            chunk_specs = compute_chunks(total_pages, chunk_size, overlap)
+            job_log.info(f'computed {len(chunk_specs)} page-sized chunks from {total_pages} pages')
 
         async with request.app.state.pdf_semaphore:
             chunk_bytes_list = await asyncio.to_thread(chunk_pdf, source_bytes, chunk_specs)

@@ -35,6 +35,58 @@ def compute_chunks(total_pages: int, chunk_size: int = 8, overlap: int = 2) -> L
     return chunks
 
 
+def compute_chunks_by_size(source_bytes: bytes, max_chunk_bytes: int, overlap: int = 0) -> List[ChunkSpec]:
+    """Pack contiguous page ranges by saved PDF byte size.
+
+    max_chunk_bytes is treated as the primary boundary. If one page alone exceeds
+    the limit, emit that single-page chunk so callers get a deterministic service
+    response and can surface/provider-handle the oversized file.
+    """
+    if not isinstance(max_chunk_bytes, int) or max_chunk_bytes < 1:
+        return []
+
+    source = pikepdf.open(io.BytesIO(source_bytes))
+    total_pages = len(source.pages)
+    if total_pages < 1:
+        return []
+
+    overlap = max(0, overlap)
+    chunks: List[ChunkSpec] = []
+    chunk_index = 0
+    start_page = 1
+    while start_page <= total_pages:
+        end_page = _find_largest_chunk_end(source, start_page, total_pages, max_chunk_bytes)
+        chunks.append(ChunkSpec(chunk_index=chunk_index, start_page=start_page, end_page=end_page))
+        if end_page >= total_pages:
+            break
+        pages_in_chunk = end_page - start_page + 1
+        safe_overlap = min(overlap, max(0, pages_in_chunk - 1))
+        start_page = end_page - safe_overlap + 1
+        chunk_index += 1
+    return chunks
+
+
+def _find_largest_chunk_end(source: pikepdf.Pdf, start_page: int, total_pages: int, max_chunk_bytes: int) -> int:
+    best_end_page = start_page
+    for end_page in range(start_page, total_pages + 1):
+        candidate_bytes = _copy_page_range(source, start_page, end_page)
+        if len(candidate_bytes) > max_chunk_bytes and end_page > start_page:
+            return best_end_page
+        best_end_page = end_page
+        if len(candidate_bytes) > max_chunk_bytes:
+            return end_page
+    return best_end_page
+
+
+def _copy_page_range(source: pikepdf.Pdf, start_page: int, end_page: int) -> bytes:
+    new_pdf = pikepdf.Pdf.new()
+    for page_idx in range(start_page - 1, end_page):
+        new_pdf.pages.append(source.pages[page_idx])
+    buf = io.BytesIO()
+    new_pdf.save(buf)
+    return buf.getvalue()
+
+
 def chunk_pdf(source_bytes: bytes, chunks: List[ChunkSpec]) -> List[bytes]:
     """Build one sub-PDF per chunk. Returns raw bytes per chunk in chunk order."""
     source = pikepdf.open(io.BytesIO(source_bytes))

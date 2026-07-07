@@ -67,8 +67,8 @@ Use this before AI classification when the source file is too large for a single
   "sfAccessToken": "00D...",
   "sfApiVersion": "60.0",
   "libraryId": "058...",
-  "chunkSize": 8,
-  "overlap": 2
+  "maxChunkBytes": 10485760,
+  "overlap": 0
 }
 ```
 
@@ -77,7 +77,7 @@ Use this before AI classification when the source file is too large for a single
 1. Download source bytes from `ContentVersion.VersionData`.
 2. Reject the file if it exceeds `MAX_SOURCE_BYTES`.
 3. Count PDF pages with pikepdf.
-4. Compute chunks. Defaults are 8 pages per chunk with 2 pages of overlap.
+4. Compute chunks. When `maxChunkBytes` is present, chunks are packed by saved PDF byte size. Legacy `chunkSize` page-count chunking is used only when `maxChunkBytes` is absent.
 5. Create each chunk PDF in memory.
 6. Upload each chunk as `bundle_chunk_<index>.pdf`.
 

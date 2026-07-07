@@ -152,6 +152,27 @@ def test_chunks_route_preserves_explicit_zero_overlap(monkeypatch):
     assert [(chunk['pageOffset'], chunk['pageCount']) for chunk in chunks] == [(1, 8), (9, 6)]
 
 
+def test_chunks_route_uses_max_chunk_bytes_when_present(monkeypatch):
+    FakeChunksSalesforceClient.uploads = []
+    monkeypatch.setattr(chunks_module, 'SalesforceFilesClient', FakeChunksSalesforceClient)
+
+    with TestClient(app) as client:
+        response = client.post('/v1/chunks', headers=AUTH_HEADERS, json={
+            'jobId': 'job-1',
+            'sourceContentVersionId': 'source-cv',
+            'sfInstanceUrl': 'https://example.my.salesforce.com',
+            'sfAccessToken': 'token',
+            'chunkSize': 8,
+            'maxChunkBytes': 10 * 1024 * 1024,
+            'overlap': 0,
+        })
+
+    assert response.status_code == 200
+    chunks = response.json()['chunks']
+    assert [(chunk['pageOffset'], chunk['pageCount']) for chunk in chunks] == [(1, 14)]
+    assert len(FakeChunksSalesforceClient.uploads) == 1
+
+
 def test_splits_route_uploads_moves_and_links_outputs(monkeypatch):
     FakeSplitsSalesforceClient.uploads = []
     FakeSplitsSalesforceClient.moves = []

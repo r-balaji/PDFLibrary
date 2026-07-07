@@ -3,7 +3,7 @@ import io
 import pikepdf
 import pytest
 
-from app.pdf_ops import chunk_pdf, compute_chunks, get_page_count, split_by_pages
+from app.pdf_ops import ChunkSpec, chunk_pdf, compute_chunks, compute_chunks_by_size, get_page_count, split_by_pages
 
 
 def make_pdf(page_count: int) -> bytes:
@@ -43,6 +43,36 @@ class TestComputeChunks:
         assert compute_chunks(0, 8, 2) == []
         assert compute_chunks(-1, 8, 2) == []
         assert compute_chunks(10, 0, 2) != []  # chunk_size clamped to 1
+
+
+class TestComputeChunksBySize:
+    def test_packs_all_pages_when_under_byte_target(self):
+        source = make_pdf(14)
+        chunks = compute_chunks_by_size(source, len(source) + 1024, 0)
+
+        assert chunks == [ChunkSpec(chunk_index=0, start_page=1, end_page=14)]
+
+    def test_splits_by_saved_pdf_byte_size(self):
+        source = make_pdf(4)
+        two_page_size = len(chunk_pdf(source, [ChunkSpec(chunk_index=0, start_page=1, end_page=2)])[0])
+
+        chunks = compute_chunks_by_size(source, two_page_size, 0)
+
+        assert chunks == [
+            ChunkSpec(chunk_index=0, start_page=1, end_page=2),
+            ChunkSpec(chunk_index=1, start_page=3, end_page=4),
+        ]
+
+    def test_emits_single_page_when_one_page_exceeds_target(self):
+        source = make_pdf(2)
+        one_page_size = len(chunk_pdf(source, [ChunkSpec(chunk_index=0, start_page=1, end_page=1)])[0])
+
+        chunks = compute_chunks_by_size(source, one_page_size - 1, 0)
+
+        assert chunks[0] == ChunkSpec(chunk_index=0, start_page=1, end_page=1)
+
+    def test_zero_or_missing_byte_target_returns_empty(self):
+        assert compute_chunks_by_size(make_pdf(2), 0, 0) == []
 
 
 class TestGetPageCount:

@@ -18,9 +18,9 @@ Authorization: Bearer <PDF_SERVICE_API_KEY>
 
 ### `POST /v1/chunks`
 
-Downloads a source `ContentVersion`, splits it into overlapping chunks, uploads each chunk as a new `ContentVersion`, and returns the new file IDs plus the page offset for each chunk.
+Downloads a source `ContentVersion`, splits it into chunks, uploads each chunk as a new `ContentVersion`, and returns the new file IDs plus the page offset for each chunk.
 
-Default chunking is 8 pages with 2 pages of overlap. Send `chunkSize` and `overlap` to override it.
+Send `maxChunkBytes` to pack each chunk up to a byte-size target. `chunkSize` remains supported only as a legacy fallback when `maxChunkBytes` is absent.
 
 ### `POST /v1/splits`
 
