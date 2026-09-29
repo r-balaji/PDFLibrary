@@ -10,7 +10,7 @@ Apex cannot copy arbitrary pages out of an existing PDF, and pushing PDF bytes t
 
 ## Endpoints
 
-All endpoints except `/` and `/healthz` require:
+All endpoints except `/`, `/healthz`, and `/readyz` require:
 
 ```http
 Authorization: Bearer <PDF_SERVICE_API_KEY>
@@ -20,11 +20,15 @@ Authorization: Bearer <PDF_SERVICE_API_KEY>
 
 Downloads a source `ContentVersion`, splits it into chunks, uploads each chunk as a new `ContentVersion`, and returns the new file IDs plus the page offset for each chunk.
 
+Before downloading the file, the service verifies that the supplied Salesforce org, split job, source file, and library belong to the same request context.
+
 Send `maxChunkBytes` to pack each chunk up to a byte-size target. `chunkSize` remains supported only as a legacy fallback when `maxChunkBytes` is absent.
 
 ### `POST /v1/splits`
 
 Downloads a source `ContentVersion`, slices it into one output PDF per segment, uploads each output as a new `ContentVersion`, and optionally moves each output into a target folder and links it to a record.
+
+The service verifies the destination folder and linked record against the split job before processing.
 
 Segments use 1-based absolute page numbers:
 
@@ -66,21 +70,30 @@ Health check:
 
 ```bash
 curl http://localhost:8080/healthz
+curl http://localhost:8080/readyz
 ```
 
 ## Configuration
 
 | Env var | Required | Default | Notes |
 |---|---:|---:|---|
-| `PDF_SERVICE_API_KEY` | yes | none | Shared secret expected in the `Authorization` header. |
+| `PDF_SERVICE_API_KEY` | yes* | none | Existing single shared secret expected in the `Authorization` header. |
+| `PDF_SERVICE_API_KEYS` | yes* | none | Comma-separated current and next keys for zero-downtime rotation. Takes precedence over `PDF_SERVICE_API_KEY`. |
+| `DATABASE_URL` | production | none | Render Postgres connection used only to prevent duplicate job operations and return completed responses. |
 | `PORT` | no | `8080` | Used by Render/Docker. |
 | `LOG_LEVEL` | no | `info` | Python logging level. |
 | `WORKER_CONCURRENCY` | no | `2` | Max concurrent PDF CPU work inside this process. |
+| `PDF_OPERATION_TIMEOUT_SECONDS` | no | `110` | Hard timeout for isolated PDF parsing/splitting work. |
 | `MAX_SOURCE_BYTES` | no | `104857600` | Defensive source PDF size cap. |
+| `MAX_REQUEST_BYTES` | no | `1048576` | Maximum JSON request body size. |
+| `MAX_PAGES` | no | `2000` | Maximum pages accepted from one source PDF. |
+| `MAX_SEGMENTS` | no | `500` | Maximum chunks or final output segments per request. |
+
+`*` Configure either `PDF_SERVICE_API_KEY` or `PDF_SERVICE_API_KEYS`.
 
 ## Deploy
 
-The service is Render-ready through `render.yaml` and Docker:
+The Render Blueprint creates the web service and a small private Render Postgres database for 30-minute request idempotency. `/readyz` reports unhealthy when that database is unavailable.
 
 ```bash
 docker build -t pdf-lib-service .
@@ -93,7 +106,7 @@ After Render deploys:
 curl https://your-service.onrender.com/healthz
 ```
 
-Copy the generated `PDF_SERVICE_API_KEY` from Render into the Salesforce Named Credential or callout configuration.
+Copy the generated `PDF_SERVICE_API_KEY` from Render into the Salesforce Named Credential or callout configuration. To rotate it, set `PDF_SERVICE_API_KEYS` to `old-key,new-key`, update Salesforce to the new key, then remove the old key.
 
 ## Tests
 
@@ -101,4 +114,4 @@ Copy the generated `PDF_SERVICE_API_KEY` from Render into the Salesforce Named C
 python3 -m pytest tests/ -v
 ```
 
-The test suite covers the pure PDF page operations plus the FastAPI auth, chunk, split, and validation paths with a fake Salesforce client. Live Salesforce REST round-trips should be smoke-tested against a sandbox.
+The test suite covers PDF validation and page operations, request authorization, failure cleanup, retry behavior, and the chunk/split routes. Live Salesforce REST round-trips and Render Postgres connectivity should also be smoke-tested before production release.

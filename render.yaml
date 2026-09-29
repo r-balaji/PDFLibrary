@@ -4,7 +4,7 @@ services:
     runtime: docker
     plan: starter
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /healthz
+    healthCheckPath: /readyz
     autoDeploy: true
     envVars:
       - key: LOG_LEVEL
@@ -13,7 +13,31 @@ services:
         value: "8080"
       - key: WORKER_CONCURRENCY
         value: "2"
+      - key: PDF_OPERATION_TIMEOUT_SECONDS
+        value: "110"
       - key: MAX_SOURCE_BYTES
         value: "104857600"
+      - key: MAX_REQUEST_BYTES
+        value: "1048576"
+      - key: MAX_PAGES
+        value: "2000"
+      - key: MAX_SEGMENTS
+        value: "500"
+      - key: MIN_CHUNK_BYTES
+        value: "1048576"
+      - key: MAX_CHUNK_BYTES
+        value: "15728640"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pdf-lib-service-state
+          property: connectionPoolString
+      - key: ALLOWED_SALESFORCE_DOMAIN_SUFFIXES
+        value: "my.salesforce.com"
       - key: PDF_SERVICE_API_KEY
         generateValue: true
+
+databases:
+  - name: pdf-lib-service-state
+    plan: 0.1c-256mb
+    connectionPool: pgbouncer
+    ipAllowList: []
