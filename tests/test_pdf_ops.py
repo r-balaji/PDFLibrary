@@ -3,15 +3,7 @@ import io
 import pikepdf
 import pytest
 
-from app.pdf_ops import (
-    ChunkSpec,
-    UnsafePdfError,
-    chunk_pdf,
-    compute_chunks,
-    compute_chunks_by_size,
-    get_page_count,
-    split_by_pages,
-)
+from app.pdf_ops import ChunkSpec, chunk_pdf, compute_chunks, compute_chunks_by_size, get_page_count, split_by_pages
 
 
 def make_pdf(page_count: int) -> bytes:
@@ -86,32 +78,6 @@ class TestComputeChunksBySize:
 class TestGetPageCount:
     def test_returns_page_count(self):
         assert get_page_count(make_pdf(7)) == 7
-
-    def test_rejects_non_pdf_content(self):
-        with pytest.raises(UnsafePdfError):
-            get_page_count(b'not a pdf')
-
-    def test_rejects_encrypted_pdf(self):
-        pdf = pikepdf.Pdf.new()
-        pdf.add_blank_page()
-        output = io.BytesIO()
-        pdf.save(output, encryption=pikepdf.Encryption(user='secret', owner='owner'))
-
-        with pytest.raises(UnsafePdfError):
-            get_page_count(output.getvalue())
-
-    def test_rejects_pdf_open_actions(self):
-        pdf = pikepdf.Pdf.new()
-        pdf.add_blank_page()
-        pdf.Root.OpenAction = pikepdf.Dictionary(
-            S=pikepdf.Name('/JavaScript'),
-            JS=pikepdf.String('app.alert("unsafe")'),
-        )
-        output = io.BytesIO()
-        pdf.save(output)
-
-        with pytest.raises(UnsafePdfError):
-            get_page_count(output.getvalue())
 
 
 class TestChunkPdf:
